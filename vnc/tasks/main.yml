@@ -1,0 +1,100 @@
+---
+
+- name: Install the 'Gnome desktop' environment group (takes a while)
+  yum:
+    name: "@^Server with GUI"
+    state: present
+  async: 1200
+  poll: 60
+
+- name: upadate yum
+  yum: name=*
+
+- name: Install EPEL repository
+  yum: name=epel-release state=latest
+
+- name: Install TigerVNC
+  yum:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - tigervnc-server
+    - expect
+    - ansible
+    - python-pip
+
+- name: Creating user "{{ uusername }}" 
+  user: name={{ uusername }} password={{ upassword |password_hash('sha512') }}
+
+- name: Creating instance of vnc server
+  copy:
+    src: vncinstance
+    dest: /etc/systemd/system/vncserver@:8.service
+    owner: root
+    group: root
+    mode: 0644
+
+- name: change the names
+  lineinfile:
+    path: /etc/systemd/system/vncserver@:8.service
+    regexp: '^ExecStart'
+    line: 'ExecStart=/usr/sbin/runuser -l {{ uusername }} -c "/usr/bin/vncserver %i -geometry 1280x1024"'
+
+- name: change the name
+  lineinfile:
+    path: /etc/systemd/system/vncserver@:8.service
+    regexp: '^PIDFile'
+    line: 'PIDFile=/home/{{ uusername }}/.vnc/%H%i.pid'
+
+- name: build set_vncpasswd.sh
+  template:
+    src: set_vncpasswd.j2
+    dest: /tmp/set_vncpasswd.sh
+    owner: root
+    mode: 0700
+    force: yes
+
+- name: Execute set_vncpasswd.sh
+  command: /tmp/set_vncpasswd.sh
+
+- name: Reload systemctl
+  command: systemctl daemon-reload
+
+- name: reload vnc instance
+  systemd:
+    name: vncserver@:8.service
+    state: started
+    enabled: True
+
+- name: start firewalld
+  systemd:
+    name: firewalld
+    state: restarted
+
+- name: Enabling vncserver
+  command: firewall-cmd --permanent --zone=public --add-port=5908/tcp
+
+- name: reload firewall
+  command: firewall-cmd --reload
+
+- name: Run expect to wait for a successful PXE boot via out-of-band CIMC
+  shell: |
+    spawn  su - {{ uusername }} -c "vncserver"
+
+    expect "Password:"
+    send "{{ upassword }}\n"
+
+    expect "Verify:"
+    send "{{ upassword }}\n"
+
+    exit 0
+  args:
+    executable: /usr/bin/expect
+  
+- name: reload systemctl
+  command: systemctl daemon-reload
+
+- name: reload vnc6
+  systemd: 
+    name: vncserver@:8.service
+    state: restarted

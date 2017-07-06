@@ -1,0 +1,7 @@
+---
+ - hosts: centos
+   become: yes
+   become_user: root
+   
+   roles:
+    - vnc
